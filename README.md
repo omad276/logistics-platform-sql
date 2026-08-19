@@ -1,0 +1,402 @@
+# Logistics Operations & Task Dispatch Platform
+
+**A PostgreSQL database design for door-to-door freight execution.**
+
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14%2B-336791)
+![Tables](https://img.shields.io/badge/tables-53-blue)
+![Constraints](https://img.shields.io/badge/named%20constraints-44-green)
+![License](https://img.shields.io/badge/license-MIT-lightgrey)
+
+Most logistics databases store shipments. This one **dispatches** them.
+
+Every approved contract generates a live operational plan — stages, tasks, owners, dependencies, deadlines. When customs holds a container, the blocked work, the delay hours and the eroded margin all fall out of the schema without a line of application code deciding it.
+
+Built from a functional specification covering eighteen operational modules, from contract intake through to financial closure.
+
+---
+
+## Contents
+
+- [The problem this solves](#the-problem-this-solves)
+- [The workflow engine](#the-workflow-engine)
+- [Entity relationship diagram](#entity-relationship-diagram)
+- [Contract templates](#contract-templates)
+- [Task dependencies](#task-dependencies)
+- [The audit trail](#the-audit-trail)
+- [Worked scenario: Sudan → Sharjah](#worked-scenario-sudan--sharjah)
+- [Quick start](#quick-start)
+- [Repository layout](#repository-layout)
+- [Design decisions](#design-decisions)
+- [Known limits](#known-limits)
+
+---
+
+## The problem this solves
+
+A freight forwarder handling door-to-door movements faces the same operational question a hundred times a day: **what needs doing right now, by whom, and what is blocking it?**
+
+Spreadsheets answer that badly. Generic project tools answer it without understanding cargo, customs or margin. Most bespoke logistics software answers it by hard-coding the workflow into application logic — which means every new service line becomes a development ticket.
+
+This schema takes a different position: **the workflow is data, not code.**
+
+---
+
+## The workflow engine
+
+This is the core of the design and the part worth understanding first.
+
+```mermaid
+flowchart LR
+    A[contract_types] --> B[workflow_templates]
+    B --> C[stage_templates]
+    C --> D[task_templates]
+    D --> E[task_template_dependencies]
+
+    F(["Contract approved<br/>fn_instantiate_workflow()"])
+
+    B -.-> F
+    F --> G[shipment_stages]
+    G --> H[tasks]
+    H --> I[task_dependencies]
+    H --> J[task_status_history]
+
+    style F fill:#2d6a4f,stroke:#1b4332,color:#fff
+    style A fill:#e9ecef,stroke:#adb5bd
+    style H fill:#e9ecef,stroke:#adb5bd
+```
+
+**Left side is configuration. Right side is live operations.**
+
+A template is defined once per contract type. Approving a contract calls one function:
+
+```sql
+SELECT fn_instantiate_workflow(shipment_id);
+```
+
+That single call reads the template, skips stages the contract doesn't need, creates the live stages and tasks, schedules them from offset hours, and replays the template's dependency edges onto the real tasks.
+
+Three consequences that matter in practice:
+
+| | |
+|---|---|
+| **Configuration, not deployment** | An operations manager adds a "Quality Inspection" task to the reefer workflow without involving a developer. |
+| **Shipments in flight are immune** | Each holds its own instantiated copy. Editing a template on Monday cannot silently rewrite Friday's shipment. |
+| **No hard-coded sequence** | `v_ready_tasks` returns whatever is genuinely unblocked, for any workflow shape, from one query. |
+
+### Conditional stages
+
+Stage templates carry skip conditions evaluated at instantiation:
+
+```sql
+skip_if_no_warehouse BOOLEAN   -- drop bonded storage on direct-delivery contracts
+skip_if_domestic     BOOLEAN   -- drop customs stages on domestic moves
+```
+
+A company with no warehouse never sees a warehousing stage. Same schema, same template family, different instantiation.
+
+---
+
+## Entity relationship diagram
+
+```mermaid
+erDiagram
+    COMPANIES ||--o{ CONTRACTS : issues
+    COMPANIES ||--o{ BRANCHES : "operates"
+    BRANCHES ||--o{ DEPARTMENTS : "contains"
+    PARTIES ||--o{ CONTRACTS : "customer / seller / buyer"
+    CONTRACT_TYPES ||--o{ CONTRACTS : classifies
+    CONTRACT_TYPES ||--|| WORKFLOW_TEMPLATES : drives
+
+    WORKFLOW_TEMPLATES ||--o{ STAGE_TEMPLATES : contains
+    STAGE_TEMPLATES ||--o{ TASK_TEMPLATES : contains
+    TASK_TEMPLATES ||--o{ TASK_TEMPLATE_DEPENDENCIES : declares
+
+    CONTRACTS ||--o{ SHIPMENTS : "executed by"
+    CONTRACTS ||--o{ CONTRACT_CARGO_LINES : lists
+    CONTRACTS ||--o{ CONTRACT_CHARGES : prices
+
+    SHIPMENTS ||--o{ SHIPMENT_CARGO_LINES : carries
+    SHIPMENTS ||--o{ SHIPMENT_STAGES : "planned as"
+    SHIPMENT_STAGES ||--o{ TASKS : contains
+    TASKS ||--o{ TASK_DEPENDENCIES : "blocked by"
+    TASKS ||--o{ TASK_STATUS_HISTORY : audits
+    TASKS ||--o{ TASK_ASSIGNMENTS : "worked by"
+
+    SHIPMENTS ||--o{ TRANSPORT_ORDERS : "moved by"
+    SHIPMENTS ||--o{ HANDLING_OPERATIONS : "loaded / unloaded"
+    SHIPMENTS ||--o{ CUSTOMS_DECLARATIONS : declares
+    SHIPMENTS ||--o{ INVENTORY_MOVEMENTS : stores
+    SHIPMENTS ||--o{ DELIVERIES : "closed by"
+    SHIPMENTS ||--o{ INCIDENTS : "disrupted by"
+    SHIPMENTS ||--o{ TRACKING_EVENTS : "visible as"
+    SHIPMENTS ||--o{ SHIPMENT_FINANCIALS : costs
+    SHIPMENTS ||--o{ DOCUMENTS : evidences
+
+    TRANSPORT_ORDERS }o--|| VEHICLES : uses
+    TRANSPORT_ORDERS }o--|| DRIVERS : "driven by"
+    HANDLING_OPERATIONS ||--o{ HANDLING_OPERATION_WORKERS : staffed
+    INVENTORY_MOVEMENTS }o--|| WAREHOUSES : "held in"
+    INVENTORY_MOVEMENTS }o--|| STORAGE_BINS : "located at"
+    SHIPMENT_FINANCIALS ||--o{ INVOICES : bills
+    INVOICES ||--o{ INVOICE_LINES : itemises
+    INVOICES ||--o{ PAYMENTS : "settled by"
+
+    USERS ||--o{ USER_ROLES : holds
+    ROLES ||--o{ USER_ROLES : "granted as"
+    ROLES ||--o{ ROLE_PERMISSIONS : allows
+```
+
+*Core relationships shown. Full detail in [`docs/SCHEMA_DESIGN.md`](docs/SCHEMA_DESIGN.md).*
+
+### The shipment lifecycle
+
+```mermaid
+flowchart TD
+    C[Contract approved] --> S[Shipment created]
+    S --> P[Pickup from seller]
+    P --> L[Loading & stuffing]
+    L --> EC[Export customs]
+    EC --> M[Ocean freight]
+    M --> IC[Import customs]
+    IC --> W[Bonded warehousing]
+    W --> FD[Final delivery]
+    FD --> POD[Proof of delivery]
+    POD --> CL[Operational & financial closure]
+
+    IC -.->|declaration held| INC[Incident raised]
+    INC -.->|resolved| IC
+
+    style INC fill:#c1121f,stroke:#780000,color:#fff
+    style CL fill:#2d6a4f,stroke:#1b4332,color:#fff
+```
+
+---
+
+## Contract templates
+
+Contract types are a **lookup table, not an enum** — because the specification requires the system to serve companies with different business models, and inventing a new service line must not require a database migration.
+
+The seed data defines `DOOR_DOOR_SEA`, which declares its own operational shape:
+
+| Attribute | Value | Effect at instantiation |
+|---|---|---|
+| `origin_is_door` | true | Pickup stage included |
+| `destination_is_door` | true | Final delivery stage included |
+| `is_international` | true | Export and import customs stages included |
+| `involves_warehouse` | true | Bonded storage stage included |
+| `default_mode` | sea | Ocean leg planned |
+
+Its template produces **eight stages and seventeen tasks**:
+
+```
+10 PICKUP          → prepare vehicle, collect cargo
+20 LOADING         → verify documents, stuff and seal container
+30 EXPORT_CUSTOMS  → file declaration, obtain release
+40 MAIN_LEG        → book vessel, issue B/L, monitor transit
+50 IMPORT_CUSTOMS  → file declaration, settle duty and VAT
+60 WAREHOUSE       → receive and inspect, put away
+70 FINAL_DELIVERY  → final leg, unload, capture POD
+80 CLOSURE         → reconcile costs, close file
+```
+
+Each task template carries its default department, priority, scheduling offset, duration, and the gates it must pass — required document type, signature, photograph, and whether failure blocks the whole shipment.
+
+---
+
+## Task dependencies
+
+Dependencies are declared **once on the templates** and replayed onto live tasks at instantiation. They are finish-to-start, and they cross stage boundaries freely — the ocean leg cannot start until export release is granted, regardless of which stage each task sits in.
+
+The dispatch board is one view with no procedural logic:
+
+```sql
+CREATE VIEW v_ready_tasks AS
+SELECT ...
+  FROM tasks t
+ WHERE t.status IN ('created','assigned','scheduled')
+   AND NOT EXISTS (
+        SELECT 1 FROM task_dependencies td
+          JOIN tasks p ON p.id = td.depends_on_task_id
+         WHERE td.task_id = t.id
+           AND p.status NOT IN ('completed','closed')
+   );
+```
+
+When a task completes, whatever it was blocking appears on the board automatically. When a task goes to `waiting`, everything downstream disappears from it. Nobody writes code to decide this.
+
+An index exists specifically for the reverse question — *what does finishing this task unblock?* — because that walks the graph the opposite way to the primary key:
+
+```sql
+CREATE INDEX idx_task_dependencies_reverse ON task_dependencies(depends_on_task_id);
+```
+
+---
+
+## The audit trail
+
+The specification requires every task status change to record date, time, user, action and reason. That is implemented as a database trigger, not application code:
+
+```sql
+CREATE TRIGGER trg_tasks_status_history AFTER UPDATE ON tasks
+    FOR EACH ROW EXECUTE FUNCTION fn_log_task_status();
+```
+
+The trigger reads the acting user from a session variable:
+
+```sql
+SET app.current_user_id = '1';
+```
+
+**Why in the database:** application code can be bypassed — by a migration script, a background job, a bulk correction, or the next developer in a hurry. A trigger cannot. If the row changed, the history exists.
+
+`task_status_history` is append-only and never updated. Neither the seed file nor the demo script inserts a single row into it, yet after running both it is fully populated. That is the demonstration.
+
+A separate `audit_log` table captures cross-cutting forensic changes with JSONB before/after snapshots.
+
+---
+
+## Worked scenario: Sudan → Sharjah
+
+The seed data is a real trade lane, not placeholder rows.
+
+> **26 MT of white sesame seed, 99/1 purity**, 520 bags at 50 kg, moving door-to-door from Nile Valley Agro Export in Khartoum North to Emirates Food Industries in Sharjah. CIF terms, contract value **AED 68,500**, container MSCU7734190.
+
+The route: Khartoum → Port Sudan (road, 830 km) → Jebel Ali (ocean) → SAIF Zone bonded warehouse → buyer's plant.
+
+**The seed leaves the shipment in trouble.** The import declaration is `held` at Jebel Ali pending phytosanitary verification by MOCCAE, a critical incident is open, demurrage is accruing, and every downstream task is blocked by the dependency graph.
+
+`sql/03_demo_customs_hold.sql` runs that situation from diagnosis to closure in nine acts:
+
+| Act | What it demonstrates |
+|---|---|
+| 1 | Where the shipment is and why it stopped — tracking view, incident, declaration |
+| 2 | The dependency graph blocking downstream work with no application logic |
+| 3 | What the hold is costing — cost ledger and live margin |
+| 4 | Demurrage accruing; margin moves in real time |
+| 5 | Resolution — certificate verified, declaration cleared, incident closed, board wakes up |
+| 6 | Remaining workflow to delivery — warehousing, final leg, unloading with damage |
+| 7 | Proof of delivery, partial acceptance, closure, payment |
+| 8 | The audit trail that wrote itself |
+| 9 | Final profitability, cost breakdown, cargo reconciliation, customer timeline |
+
+It ends with a set of statements the database **refuses** — parking a task without a reason, delivering more than was loaded, closing an undelivered shipment, over-paying an invoice. Each is a real business error caught by a named constraint.
+
+The cargo reconciliation is deliberately imperfect: 0.2 MT arrives water-damaged, four bags are rejected, a discrepancy note becomes mandatory, and the insurance claim is recorded. Clean demo data proves nothing.
+
+---
+
+## Quick start
+
+```bash
+git clone https://github.com/<your-username>/logistics-platform.git
+cd logistics-platform
+
+createdb logistics
+psql -d logistics -f sql/01_schema.sql
+psql -d logistics -f sql/02_seed.sql
+psql -d logistics -f sql/03_demo_customs_hold.sql
+```
+
+Then explore:
+
+```sql
+-- what can be dispatched right now
+SELECT task_no, task_name, stage_name, priority, is_overdue FROM v_ready_tasks;
+
+-- did this shipment make money after the customs hold?
+SELECT tracking_no, total_revenue, total_cost, gross_profit, margin_percent
+  FROM v_shipment_profitability;
+
+-- customer-facing status
+SELECT * FROM v_shipment_tracking;
+
+-- warehouse balances, derived from the movement ledger
+SELECT * FROM v_stock_on_hand;
+
+-- the audit trail nothing inserted into
+SELECT t.code, h.from_status, h.to_status, h.changed_at
+  FROM task_status_history h JOIN tasks t ON t.id = h.task_id
+ ORDER BY h.changed_at;
+```
+
+---
+
+## Repository layout
+
+```
+logistics-platform/
+├── README.md
+├── LICENSE
+├── docs/
+│   └── SCHEMA_DESIGN.md          design rationale, decisions and trade-offs
+└── sql/
+    ├── 01_schema.sql             53 tables, 19 enums, 31 indexes, 5 views,
+    │                             4 functions, 7 triggers, 44 named constraints
+    ├── 02_seed.sql               company, workflow template, contract,
+    │                             shipment held at customs
+    └── 03_demo_customs_hold.sql  nine-act end-to-end walkthrough
+```
+
+---
+
+## Design decisions
+
+Explained in full in [`docs/SCHEMA_DESIGN.md`](docs/SCHEMA_DESIGN.md). In brief:
+
+**One `parties` table, not three.** The same legal entity is a buyer on one contract and a seller on the next. The role belongs on the contract, because a role is a fact about a transaction, not about a company.
+
+**Enums for lifecycles, tables for taxonomies.** If operations staff should be able to change it, it is a row. If changing it would break application logic, it is an enum.
+
+**Stock is derived, never stored.** `inventory_movements` is an append-only signed ledger; `v_stock_on_hand` sums it. A stored balance can drift from its history with no way to tell which is lying.
+
+**Documents use an exclusive arc.** Six nullable foreign keys plus `num_nonnulls(...) = 1`, instead of an unvalidatable `entity_type`/`entity_id` pair. Real referential integrity, exactly one owner.
+
+**Money is `NUMERIC`, stored twice.** Transaction currency plus base-currency equivalent at the applied rate, so historic margins don't move when exchange rates do.
+
+**Multi-tenant from day one.** `company_id` everywhere. Retrofitting this is one of the most expensive changes a system can undergo; including it costs nothing and leaves the schema ready for Row-Level Security.
+
+**Partial indexes for operational queries.** A dispatch board never asks about closed tasks:
+
+```sql
+CREATE INDEX idx_tasks_dispatch ON tasks(company_id, status, scheduled_start_at)
+    WHERE status IN ('created','assigned','scheduled','in_progress','waiting');
+```
+
+The table grows without bound; the index does not.
+
+### Business rules the database enforces
+
+44 named constraints. A selection:
+
+| Rule | Constraint |
+|---|---|
+| An approved contract must carry an approval trail | `contracts_approval_trail` |
+| A closed shipment must have been delivered | `shipments_closure_rule` |
+| A task on hold must state why | `tasks_hold_reason` |
+| Nothing can be delivered that was never loaded | `shipment_cargo_quantities` |
+| A road leg needs a vehicle and driver; a sea leg needs a carrier | `transport_resource_rule` |
+| Cargo discrepancy requires a written remark | `handling_discrepancy_needs_remark` |
+| A resolved incident must record the action taken | `incidents_resolution_trail` |
+| Payments cannot exceed the invoice total | `invoices_totals` |
+
+---
+
+## Known limits
+
+Stated deliberately — knowing where a design stops is part of the design.
+
+- **Finish-to-start dependencies only.** No start-to-start or lag offsets. Every case in the specification is finish-to-start; the rest would be complexity without a customer.
+- **Cycle prevention is application-side.** Self-dependency is blocked; a longer loop (A→B→C→A) is not. A recursive `CHECK` isn't possible in PostgreSQL — this belongs in a trigger or the template editor.
+- **No partitioning.** `tracking_events`, `audit_log` and `task_status_history` grow without bound. Past roughly 50 million rows these want range partitioning by month.
+- **No Row-Level Security policies.** `company_id` is present so RLS can be enabled; the policies themselves aren't written.
+- **No rate cards.** Contract charges are fixed amounts, not tariffs with validity windows. A forwarder would eventually need rate versioning.
+
+---
+
+## About
+
+Designed by **Esmail Salah** — logistics and supply chain professional, Sharjah, UAE. Nine years across warehouse operations, FMCG distribution and import/export of agricultural commodities.
+
+The domain modelling here comes from that operational background: the customs hold, the demurrage clock, the four torn bags and the insurance claim are things that happen, not things invented to fill a schema.
+
+Licensed under [MIT](LICENSE).
