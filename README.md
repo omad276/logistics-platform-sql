@@ -265,23 +265,19 @@ The route: Khartoum → Port Sudan (road, 830 km) → Jebel Ali (ocean) → SAIF
 
 **The seed leaves the shipment in trouble.** The import declaration is `held` at Jebel Ali pending phytosanitary verification by MOCCAE, a critical incident is open, demurrage is accruing, and every downstream task is blocked by the dependency graph.
 
-`sql/03_demo_customs_hold.sql` runs that situation from diagnosis to closure in nine acts:
+Run `08_realistic_financials.sql` to see the hold's financial impact:
 
-| Act | What it demonstrates |
-|---|---|
-| 1 | Where the shipment is and why it stopped — tracking view, incident, declaration |
-| 2 | The dependency graph blocking downstream work with no application logic |
-| 3 | What the hold is costing — cost ledger and live margin |
-| 4 | Demurrage accruing; margin moves in real time |
-| 5 | Resolution — certificate verified, declaration cleared, incident closed, board wakes up |
-| 6 | Remaining workflow to delivery — warehousing, final leg, unloading with damage |
-| 7 | Proof of delivery, partial acceptance, closure, payment |
-| 8 | The audit trail that wrote itself |
-| 9 | Final profitability, cost breakdown, cargo reconciliation, customer timeline |
+```sql
+-- Three-way margin analysis shows the shipment going underwater
+SELECT shipment_no, booked_margin_pct, projected_margin_pct, actual_margin_pct
+FROM v_shipment_margin_analysis WHERE shipment_id = 1;
 
-It ends with a set of statements the database **refuses** — parking a task without a reason, delivering more than was loaded, closing an undelivered shipment, over-paying an invoice. Each is a real business error caught by a named constraint.
+-- Original estimate vs reality
+-- Booked margin:   ~25% (optimistic quote at contract)
+-- Projected margin: -1.7% (LOSS after customs hold costs)
+```
 
-The cargo reconciliation is deliberately imperfect: 0.2 MT arrives water-damaged, four bags are rejected, a discrepancy note becomes mandatory, and the insurance claim is recorded. Clean demo data proves nothing.
+The customs hold adds: demurrage ($1,350 USD), extended storage (7 days vs 2), MOCCAE inspection fee, container unstuffing/restuffing, expedited clearance overtime, and a credit note to the customer for delay — turning a healthy margin into a loss.
 
 ---
 
@@ -294,7 +290,10 @@ cd logistics-platform
 createdb logistics
 psql -d logistics -f sql/01_schema.sql
 psql -d logistics -f sql/02_seed.sql
-psql -d logistics -f sql/03_demo_customs_hold.sql
+psql -d logistics -f sql/04_countries_customs.sql
+psql -d logistics -f sql/06_rls_policies.sql
+psql -d logistics -f sql/07_margin_analysis.sql
+psql -d logistics -f sql/08_realistic_financials.sql
 ```
 
 Then explore:
@@ -333,8 +332,7 @@ logistics-platform/
     ├── 01_schema.sql                 53 tables, 19 enums, 31 indexes, 5 views,
     │                                 4 functions, 7 triggers, 44 named constraints
     ├── 02_seed.sql                   company, workflow template, contract,
-    │                                 shipment held at customs
-    ├── 03_demo_customs_hold.sql      nine-act end-to-end walkthrough
+    │                                 shipment held at customs (BIGINT IDs)
     ├── 04_countries_customs.sql      ISO 3166/4217 reference data, customs unions,
     │                                 temporal membership, Brexit-aware
     ├── 05_rls_tests.sql              RLS test suite (run before and after policies)

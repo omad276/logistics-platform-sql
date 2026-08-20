@@ -28,16 +28,17 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM contracts WHERE company_id = 999) THEN
         INSERT INTO contracts (
             company_id, contract_no, contract_type_id,
-            seller_party_id, buyer_party_id,
+            customer_id, seller_id, buyer_id,
             origin_location_id, destination_location_id,
-            transport_mode, incoterm, status
+            primary_mode, incoterm, valid_from, status
         )
         SELECT
             999, 'TEST-999-001', ct.id,
             (SELECT id FROM parties LIMIT 1),
+            (SELECT id FROM parties LIMIT 1),
             (SELECT id FROM parties LIMIT 1 OFFSET 1),
             v_location_id, v_location_id,
-            'road', 'EXW', 'draft'
+            'road', 'EXW', CURRENT_DATE, 'draft'
         FROM contract_types ct LIMIT 1;
     END IF;
 
