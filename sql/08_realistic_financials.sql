@@ -2,40 +2,14 @@
 -- Realistic Financial Seed Data
 -- Demonstrates three-way margin analysis with a shipment going underwater
 -- =============================================================================
--- Run AFTER: 01_schema.sql, 02_seed.sql (if exists), 07_margin_analysis.sql
+-- Run AFTER: 01_schema.sql, 02_seed.sql, 07_margin_analysis.sql
+-- Cost categories are created in 02_seed.sql
 
 -- =============================================================================
--- PART 1: Ensure cost categories exist
+-- PART 1: Replace seed financials with realistic actuals showing loss
 -- =============================================================================
 
-INSERT INTO cost_categories (id, company_id, code, name, direction, is_billable)
-VALUES
-    (1, 1, 'OCEAN_FREIGHT',      'Ocean Freight',           'cost', TRUE),
-    (2, 1, 'INLAND_ORIGIN',      'Inland Trucking (Origin)', 'cost', TRUE),
-    (3, 1, 'INLAND_DEST',        'Inland Trucking (Dest)',   'cost', TRUE),
-    (4, 1, 'LOADING',            'Loading/Handling',         'cost', TRUE),
-    (5, 1, 'UNLOADING',          'Unloading',                'cost', TRUE),
-    (6, 1, 'THC',                'Terminal Handling',        'cost', TRUE),
-    (7, 1, 'CUSTOMS_EXPORT',     'Customs Export Clearance', 'cost', TRUE),
-    (8, 1, 'CUSTOMS_IMPORT',     'Customs Import Clearance', 'cost', TRUE),
-    (9, 1, 'DUTY',               'Import Duty',              'cost', TRUE),
-    (10, 1, 'VAT',               'Import VAT',               'cost', TRUE),
-    (11, 1, 'STORAGE',           'Storage/Warehousing',      'cost', TRUE),
-    (12, 1, 'DEMURRAGE',         'Demurrage/Detention',      'cost', TRUE),
-    (13, 1, 'INSPECTION',        'Inspection Fees',          'cost', TRUE),
-    (14, 1, 'DOCUMENTATION',     'Documentation',            'cost', TRUE),
-    (15, 1, 'FREIGHT_REVENUE',   'Freight Charges',          'revenue', TRUE),
-    (16, 1, 'DUTY_RECOVERY',     'Duty Recovery',            'revenue', TRUE),
-    (17, 1, 'VAT_RECOVERY',      'VAT Recovery',             'revenue', TRUE)
-ON CONFLICT (company_id, code) DO NOTHING;
-
--- =============================================================================
--- PART 2: Clear old financials for shipment 1 and insert proper line items
--- =============================================================================
-
--- Note: Using shipment_id = 1 (assumes shipment exists from seed)
--- In production, use actual shipment BIGINT id
-
+-- Clear estimates from 02_seed.sql (we'll recreate with realistic costs)
 DELETE FROM shipment_financials WHERE shipment_id = 1;
 
 -- =============================================================================
