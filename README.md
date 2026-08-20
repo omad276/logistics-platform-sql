@@ -328,13 +328,21 @@ logistics-platform/
 ├── README.md
 ├── LICENSE
 ├── docs/
-│   └── SCHEMA_DESIGN.md          design rationale, decisions and trade-offs
+│   └── SCHEMA_DESIGN.md              design rationale, decisions and trade-offs
 └── sql/
-    ├── 01_schema.sql             53 tables, 19 enums, 31 indexes, 5 views,
-    │                             4 functions, 7 triggers, 44 named constraints
-    ├── 02_seed.sql               company, workflow template, contract,
-    │                             shipment held at customs
-    └── 03_demo_customs_hold.sql  nine-act end-to-end walkthrough
+    ├── 01_schema.sql                 53 tables, 19 enums, 31 indexes, 5 views,
+    │                                 4 functions, 7 triggers, 44 named constraints
+    ├── 02_seed.sql                   company, workflow template, contract,
+    │                                 shipment held at customs
+    ├── 03_demo_customs_hold.sql      nine-act end-to-end walkthrough
+    ├── 04_countries_customs.sql      ISO 3166/4217 reference data, customs unions,
+    │                                 temporal membership, Brexit-aware
+    ├── 05_rls_tests.sql              RLS test suite (run before and after policies)
+    ├── 06_rls_policies.sql           multi-tenant Row-Level Security for 50 tables
+    ├── 07_margin_analysis.sql        three-way margin view (booked, projected, actual)
+    │                                 with superseded_by estimate→actual linking
+    └── 08_realistic_financials.sql   seed data demonstrating a shipment going
+                                      underwater due to customs hold costs
 ```
 
 ---
@@ -381,6 +389,61 @@ The table grows without bound; the index does not.
 
 ---
 
+## Multi-tenant Row-Level Security
+
+Every table carries `company_id`. RLS policies in `06_rls_policies.sql` enforce tenant isolation at the database level:
+
+```sql
+-- All 30 direct-tenant tables
+ALTER TABLE shipments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE shipments FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolation ON shipments
+    FOR ALL TO authenticated
+    USING (company_id = current_company_id())
+    WITH CHECK (company_id = current_company_id());
+```
+
+**Fail loud, not silent.** The `current_company_id()` helper throws if the session variable is unset — no silent data leakage.
+
+Child tables (invoice_lines, task_dependencies, etc.) join through their parent to the tenant column. Reference tables (countries, currencies, customs_unions) are readable without tenant context.
+
+Test suite in `05_rls_tests.sql` verifies read isolation, write blocking, and correct behaviour with unset session.
+
+---
+
+## Three-way margin analysis
+
+`v_shipment_margin_analysis` tracks profitability through the shipment lifecycle:
+
+| Margin | Formula | When it matters |
+|--------|---------|-----------------|
+| **Booked** | contracted_revenue − original_committed_cost | At contract signing — "did we quote correctly?" |
+| **Projected** | contracted_revenue − (actuals + remaining_committed) | During execution — "are we still making money?" |
+| **Actual** | actual_revenue − actual_cost | Closed shipments only — "what did we really make?" |
+
+The `superseded_by` column links estimates to their actuals:
+
+```sql
+-- When invoice arrives, supersede the estimate
+UPDATE shipment_financials
+SET superseded_by = actual.id
+WHERE id = estimate.id;
+```
+
+The view automatically tracks original committed costs vs remaining committed costs. Pass-through charges (duty, VAT rebilled to customer) appear on both sides and net out.
+
+**`08_realistic_financials.sql`** demonstrates a shipment going underwater:
+- Original committed: 44,813 AED
+- Customs hold adds: demurrage, extended storage, inspection fees
+- Final actual: 71,214 AED
+- Revenue (with credit note for delay): 70,021 AED
+- **Net loss: −1,193 AED**
+
+This is what the tool is for: catching shipments going underwater in real time.
+
+---
+
 ## Known limits
 
 Stated deliberately — knowing where a design stops is part of the design.
@@ -388,7 +451,6 @@ Stated deliberately — knowing where a design stops is part of the design.
 - **Finish-to-start dependencies only.** No start-to-start or lag offsets. Every case in the specification is finish-to-start; the rest would be complexity without a customer.
 - **Cycle prevention is application-side.** Self-dependency is blocked; a longer loop (A→B→C→A) is not. A recursive `CHECK` isn't possible in PostgreSQL — this belongs in a trigger or the template editor.
 - **No partitioning.** `tracking_events`, `audit_log` and `task_status_history` grow without bound. Past roughly 50 million rows these want range partitioning by month.
-- **No Row-Level Security policies.** `company_id` is present so RLS can be enabled; the policies themselves aren't written.
 - **No rate cards.** Contract charges are fixed amounts, not tariffs with validity windows. A forwarder would eventually need rate versioning.
 
 ---
