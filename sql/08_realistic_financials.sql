@@ -2,8 +2,14 @@
 -- Realistic Financial Seed Data
 -- Demonstrates three-way margin analysis with a shipment going underwater
 -- =============================================================================
--- Run AFTER: 01_schema.sql, 02_seed.sql, 07_margin_analysis.sql
+-- Run AFTER: 01_schema.sql, 02_seed.sql, 06_rls_policies.sql, 07_margin_analysis.sql
 -- Cost categories are created in 02_seed.sql
+
+-- =============================================================================
+-- RLS SETUP: Session variable required after 06_rls_policies.sql
+-- current_company_id() fails loud when unset, so we must set it before DML
+-- =============================================================================
+SET app.company_id = '1';
 
 -- =============================================================================
 -- PART 1: Replace seed financials with realistic actuals showing loss

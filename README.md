@@ -265,6 +265,8 @@ The route: Khartoum → Port Sudan (road, 830 km) → Jebel Ali (ocean) → SAIF
 
 **The seed leaves the shipment in trouble.** The import declaration is `held` at Jebel Ali pending phytosanitary verification by MOCCAE, a critical incident is open, demurrage is accruing, and every downstream task is blocked by the dependency graph.
 
+Run `03_demo_customs_hold.sql` to continue the story — a nine-act walkthrough that resolves the hold, completes delivery (with 4 damaged bags), invoices the customer, demonstrates the audit trail, and shows five constraint violations the database refuses.
+
 Run `08_realistic_financials.sql` to see the hold's financial impact:
 
 ```sql
@@ -290,6 +292,7 @@ cd logistics-platform
 createdb logistics
 psql -d logistics -f sql/01_schema.sql
 psql -d logistics -f sql/02_seed.sql
+psql -d logistics -f sql/03_demo_customs_hold.sql   # nine-act walkthrough
 psql -d logistics -f sql/04_countries_customs.sql
 psql -d logistics -f sql/06_rls_policies.sql
 psql -d logistics -f sql/07_margin_analysis.sql
@@ -333,6 +336,8 @@ logistics-platform/
     │                                 4 functions, 7 triggers, 44 named constraints
     ├── 02_seed.sql                   company, workflow template, contract,
     │                                 shipment held at customs (BIGINT IDs)
+    ├── 03_demo_customs_hold.sql      nine-act walkthrough: customs hold, resolution,
+    │                                 delivery, invoicing, audit trail, constraint demos
     ├── 04_countries_customs.sql      ISO 3166/4217 reference data, customs unions,
     │                                 temporal membership, Brexit-aware
     ├── 05_rls_tests.sql              RLS test suite (run before and after policies)
