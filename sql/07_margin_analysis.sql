@@ -1,6 +1,10 @@
 -- =============================================================================
 -- Margin Analysis: Currency Fix, Committed Cost Tracking, Three-Way Margins
 -- =============================================================================
+-- RLS SETUP: After 06_rls_policies.sql, DML requires session variable.
+-- Set to company 1 (Gulf Freight) which owns the seed data.
+-- =============================================================================
+SET app.company_id = '1';
 
 -- =============================================================================
 -- PART 1: Fix contract_charges currency handling
