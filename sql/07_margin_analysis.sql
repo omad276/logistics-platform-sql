@@ -57,7 +57,7 @@ CREATE INDEX idx_fin_superseded_by ON shipment_financials(superseded_by)
 CREATE OR REPLACE FUNCTION fn_validate_superseded_by()
 RETURNS TRIGGER
 LANGUAGE plpgsql
-AS $$
+AS $fn$
 DECLARE
     v_superseding RECORD;
 BEGIN
@@ -92,7 +92,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$;
+$fn$;
 
 CREATE TRIGGER trg_validate_superseded_by
     BEFORE INSERT OR UPDATE OF superseded_by ON shipment_financials

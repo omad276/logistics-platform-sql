@@ -49,6 +49,7 @@ CREATE TYPE incident_status     AS ENUM ('open','under_investigation','action_ta
 
 CREATE TYPE movement_type       AS ENUM ('receipt','put_away','internal_move','pick','dispatch','adjustment');
 CREATE TYPE cost_direction      AS ENUM ('cost','revenue');
+CREATE TYPE entry_type          AS ENUM ('charge','credit','adjustment');
 CREATE TYPE invoice_status      AS ENUM ('draft','issued','partially_paid','paid','overdue','cancelled');
 CREATE TYPE invoice_direction   AS ENUM ('receivable','payable');
 CREATE TYPE assignee_type       AS ENUM ('user','driver','worker','vendor','department');
@@ -1091,11 +1092,15 @@ CREATE TABLE shipment_financials (
     fx_rate             NUMERIC(14,6) NOT NULL DEFAULT 1,
     base_amount         NUMERIC(14,2) NOT NULL,
     is_estimated        BOOLEAN       NOT NULL DEFAULT FALSE,
+    entry_type          entry_type    NOT NULL DEFAULT 'charge',
     incurred_on         DATE          NOT NULL DEFAULT CURRENT_DATE,
     recorded_by         BIGINT        REFERENCES users(id),
     recorded_at         TIMESTAMPTZ   NOT NULL DEFAULT now(),
-    -- Allows negative amounts for credit notes and adjustments
-    CONSTRAINT financials_fx_positive     CHECK (fx_rate > 0)
+    CONSTRAINT financials_fx_positive     CHECK (fx_rate > 0),
+    CONSTRAINT financials_amount_sign     CHECK (
+        (entry_type = 'credit' AND amount <= 0 AND base_amount <= 0) OR
+        (entry_type IN ('charge','adjustment') AND amount >= 0 AND base_amount >= 0)
+    )
 );
 
 CREATE INDEX idx_financials_shipment ON shipment_financials(shipment_id, direction);
@@ -1140,8 +1145,14 @@ CREATE TABLE invoice_lines (
     unit_price          NUMERIC(14,2) NOT NULL,
     line_total          NUMERIC(14,2) NOT NULL,
     tax_rate            NUMERIC(5,2)  NOT NULL DEFAULT 0,
+    entry_type          entry_type    NOT NULL DEFAULT 'charge',
     UNIQUE (invoice_id, line_no),
-    CONSTRAINT invoice_lines_amounts CHECK (quantity > 0)
+    CONSTRAINT invoice_lines_amounts CHECK (
+        quantity > 0 AND (
+            (entry_type = 'credit' AND unit_price <= 0 AND line_total <= 0) OR
+            (entry_type IN ('charge','adjustment') AND unit_price >= 0 AND line_total >= 0)
+        )
+    )
 );
 
 CREATE TABLE payments (
@@ -1185,12 +1196,12 @@ CREATE INDEX idx_audit_user   ON audit_log(user_id, occurred_at DESC);
 --  SECTION 23 :: TRIGGERS
 -- =====================================================================
 
-CREATE OR REPLACE FUNCTION fn_touch_updated_at() RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION fn_touch_updated_at() RETURNS TRIGGER AS $fn$
 BEGIN
     NEW.updated_at := now();
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$fn$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_companies_touch BEFORE UPDATE ON companies
     FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at();
@@ -1203,7 +1214,7 @@ CREATE TRIGGER trg_shipments_touch BEFORE UPDATE ON shipments
 CREATE TRIGGER trg_tasks_touch     BEFORE UPDATE ON tasks
     FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at();
 
-CREATE OR REPLACE FUNCTION fn_log_task_status() RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION fn_log_task_status() RETURNS TRIGGER AS $fn$
 BEGIN
     IF NEW.status IS DISTINCT FROM OLD.status THEN
         INSERT INTO task_status_history (task_id, from_status, to_status, changed_by, reason)
@@ -1213,12 +1224,12 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$fn$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_tasks_status_history AFTER UPDATE ON tasks
     FOR EACH ROW EXECUTE FUNCTION fn_log_task_status();
 
-CREATE OR REPLACE FUNCTION fn_apply_payment() RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION fn_apply_payment() RETURNS TRIGGER AS $fn$
 DECLARE
     v_paid  NUMERIC(14,2);
     v_total NUMERIC(14,2);
@@ -1238,7 +1249,7 @@ BEGIN
      WHERE id = NEW.invoice_id;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$fn$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_payments_apply AFTER INSERT ON payments
     FOR EACH ROW EXECUTE FUNCTION fn_apply_payment();
@@ -1248,7 +1259,7 @@ CREATE TRIGGER trg_payments_apply AFTER INSERT ON payments
 -- =====================================================================
 
 CREATE OR REPLACE FUNCTION fn_instantiate_workflow(p_shipment_id BIGINT)
-RETURNS INTEGER AS $$
+RETURNS INTEGER AS $fn$
 DECLARE
     v_company_id     BIGINT;
     v_template_id    BIGINT;
@@ -1345,7 +1356,7 @@ BEGIN
 
     RETURN v_task_count;
 END;
-$$ LANGUAGE plpgsql;
+$fn$ LANGUAGE plpgsql;
 
 -- =====================================================================
 --  SECTION 25 :: OPERATIONAL VIEWS

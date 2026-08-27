@@ -411,39 +411,39 @@ INSERT INTO shipment_financials (
 -- Add additional unexpected costs from the customs hold
 INSERT INTO shipment_financials (
     company_id, shipment_id, cost_category_id, direction, description,
-    amount, currency, fx_rate, base_amount, is_estimated, incurred_on
+    amount, currency, fx_rate, base_amount, is_estimated, entry_type, incurred_on
 ) VALUES
     -- Port storage fees (separate from bonded storage)
     (1, 1, 11, 'cost', 'Jebel Ali port yard storage 7 days',
-     420.00, 'USD', 3.67, 1541.40, FALSE, CURRENT_DATE - 1),
+     420.00, 'USD', 3.67, 1541.40, FALSE, 'charge', CURRENT_DATE - 1),
 
     -- Additional demurrage (shipping line)
     (1, 1, 12, 'cost', 'MSC late return penalty (exceeded free time)',
-     600.00, 'USD', 3.67, 2202.00, FALSE, CURRENT_DATE - 1),
+     600.00, 'USD', 3.67, 2202.00, FALSE, 'charge', CURRENT_DATE - 1),
 
     -- Document rework
     (1, 1, 14, 'cost', 'Amended import declaration fees',
-     150.00, 'USD', 3.67, 550.50, FALSE, CURRENT_DATE - 1),
+     150.00, 'USD', 3.67, 550.50, FALSE, 'charge', CURRENT_DATE - 1),
 
     -- Agent overtime for expedited clearance
     (1, 1, 8, 'cost', 'Expedited clearance agent (weekend work)',
-     450.00, 'USD', 3.67, 1651.50, FALSE, CURRENT_DATE - 1),
+     450.00, 'USD', 3.67, 1651.50, FALSE, 'charge', CURRENT_DATE - 1),
 
     -- Reefer power charges (gum arabic is temperature sensitive)
     (1, 1, 11, 'cost', 'Reefer plug-in charges 7 days',
-     490.00, 'USD', 3.67, 1798.30, FALSE, CURRENT_DATE - 1),
+     490.00, 'USD', 3.67, 1798.30, FALSE, 'charge', CURRENT_DATE - 1),
 
     -- X-ray inspection
     (1, 1, 13, 'cost', 'X-ray scanning charge',
-     180.00, 'USD', 3.67, 660.60, FALSE, CURRENT_DATE - 1),
+     180.00, 'USD', 3.67, 660.60, FALSE, 'charge', CURRENT_DATE - 1),
 
     -- Quality inspection (buyer insisted after delay)
     (1, 1, 13, 'cost', 'Independent quality surveyor (buyer request)',
-     350.00, 'USD', 3.67, 1284.50, FALSE, CURRENT_DATE),
+     350.00, 'USD', 3.67, 1284.50, FALSE, 'charge', CURRENT_DATE),
 
     -- Credit note to customer for delay damages
     (1, 1, 15, 'revenue', 'Credit note - delay compensation',
-     -5500.00, 'AED', 1.00, -5500.00, FALSE, CURRENT_DATE);
+     -5500.00, 'AED', 1.00, -5500.00, FALSE, 'credit', CURRENT_DATE);
 
 -- =============================================================================
 -- FINAL TALLY (after all unexpected customs hold costs)

@@ -98,7 +98,7 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql
 STABLE
-AS $$
+AS $fn$
 DECLARE
     v_origin_unions      TEXT[];
     v_destination_unions TEXT[];
@@ -168,7 +168,7 @@ BEGIN
             COALESCE(v_destination_unions, ARRAY[]::TEXT[]);
     END IF;
 END;
-$$;
+$fn$;
 
 COMMENT ON FUNCTION fn_requires_customs_declaration IS
 'Determines if customs declarations are required for a cross-border movement.

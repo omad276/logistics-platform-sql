@@ -421,9 +421,9 @@ VALUES (
 SELECT setval('invoices_id_seq', 1);
 
 -- Create invoice lines
-INSERT INTO invoice_lines (invoice_id, line_no, cost_category_id, description, quantity, unit_price, line_total) VALUES
-    (1, 1, 15, 'Door-to-door freight services per contract GFL-2024-00147', 1, 68500.00, 68500.00),
-    (1, 2, 15, 'Credit: 4 damaged bags (water damage during customs hold)', 4, -328.75, -1315.00);
+INSERT INTO invoice_lines (invoice_id, line_no, cost_category_id, description, quantity, unit_price, line_total, entry_type) VALUES
+    (1, 1, 15, 'Door-to-door freight services per contract GFL-2024-00147', 1, 68500.00, 68500.00, 'charge'),
+    (1, 2, 15, 'Credit: 4 damaged bags (water damage during customs hold)', 4, -328.75, -1315.00, 'credit');
 
 -- Update invoice total after credit
 UPDATE invoices SET subtotal = 67185.00, total_amount = 67185.00 WHERE id = 1;

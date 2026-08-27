@@ -8,7 +8,7 @@ CREATE OR REPLACE FUNCTION current_company_id()
 RETURNS BIGINT
 LANGUAGE plpgsql
 STABLE
-AS $$
+AS $fn$
 DECLARE
     v TEXT := NULLIF(current_setting('app.company_id', true), '');
 BEGIN
@@ -18,7 +18,7 @@ BEGIN
     END IF;
     RETURN v::BIGINT;
 END;
-$$;
+$fn$;
 
 COMMENT ON FUNCTION current_company_id() IS
 'Returns the current tenant ID from session variable.
