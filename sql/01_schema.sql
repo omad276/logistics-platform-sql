@@ -1094,7 +1094,7 @@ CREATE TABLE shipment_financials (
     incurred_on         DATE          NOT NULL DEFAULT CURRENT_DATE,
     recorded_by         BIGINT        REFERENCES users(id),
     recorded_at         TIMESTAMPTZ   NOT NULL DEFAULT now(),
-    CONSTRAINT financials_amount_positive CHECK (amount >= 0 AND base_amount >= 0),
+    -- Allows negative amounts for credit notes and adjustments
     CONSTRAINT financials_fx_positive     CHECK (fx_rate > 0)
 );
 
@@ -1141,7 +1141,7 @@ CREATE TABLE invoice_lines (
     line_total          NUMERIC(14,2) NOT NULL,
     tax_rate            NUMERIC(5,2)  NOT NULL DEFAULT 0,
     UNIQUE (invoice_id, line_no),
-    CONSTRAINT invoice_lines_amounts CHECK (quantity > 0 AND unit_price >= 0 AND line_total >= 0)
+    CONSTRAINT invoice_lines_amounts CHECK (quantity > 0)
 );
 
 CREATE TABLE payments (
@@ -1185,12 +1185,12 @@ CREATE INDEX idx_audit_user   ON audit_log(user_id, occurred_at DESC);
 --  SECTION 23 :: TRIGGERS
 -- =====================================================================
 
-CREATE OR REPLACE FUNCTION fn_touch_updated_at() RETURNS TRIGGER AS $
+CREATE OR REPLACE FUNCTION fn_touch_updated_at() RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at := now();
     RETURN NEW;
 END;
-$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_companies_touch BEFORE UPDATE ON companies
     FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at();
@@ -1203,7 +1203,7 @@ CREATE TRIGGER trg_shipments_touch BEFORE UPDATE ON shipments
 CREATE TRIGGER trg_tasks_touch     BEFORE UPDATE ON tasks
     FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at();
 
-CREATE OR REPLACE FUNCTION fn_log_task_status() RETURNS TRIGGER AS $
+CREATE OR REPLACE FUNCTION fn_log_task_status() RETURNS TRIGGER AS $$
 BEGIN
     IF NEW.status IS DISTINCT FROM OLD.status THEN
         INSERT INTO task_status_history (task_id, from_status, to_status, changed_by, reason)
@@ -1213,12 +1213,12 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_tasks_status_history AFTER UPDATE ON tasks
     FOR EACH ROW EXECUTE FUNCTION fn_log_task_status();
 
-CREATE OR REPLACE FUNCTION fn_apply_payment() RETURNS TRIGGER AS $
+CREATE OR REPLACE FUNCTION fn_apply_payment() RETURNS TRIGGER AS $$
 DECLARE
     v_paid  NUMERIC(14,2);
     v_total NUMERIC(14,2);
@@ -1238,7 +1238,7 @@ BEGIN
      WHERE id = NEW.invoice_id;
     RETURN NEW;
 END;
-$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_payments_apply AFTER INSERT ON payments
     FOR EACH ROW EXECUTE FUNCTION fn_apply_payment();
@@ -1248,7 +1248,7 @@ CREATE TRIGGER trg_payments_apply AFTER INSERT ON payments
 -- =====================================================================
 
 CREATE OR REPLACE FUNCTION fn_instantiate_workflow(p_shipment_id BIGINT)
-RETURNS INTEGER AS $
+RETURNS INTEGER AS $$
 DECLARE
     v_company_id     BIGINT;
     v_template_id    BIGINT;
@@ -1345,7 +1345,7 @@ BEGIN
 
     RETURN v_task_count;
 END;
-$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql;
 
 -- =====================================================================
 --  SECTION 25 :: OPERATIONAL VIEWS

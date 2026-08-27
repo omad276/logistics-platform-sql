@@ -7,7 +7,10 @@
 -- -----------------------------------------------------------------------------
 -- Setup: Create second test tenant with known row counts
 -- Company 1 (Gulf Freight) already exists with 1 shipment
+-- IMPORTANT: Reset to superuser for setup, RLS policies don't apply to superuser
 -- -----------------------------------------------------------------------------
+
+RESET ROLE;
 
 -- Create second test company
 INSERT INTO companies (id, legal_name, trade_name, base_currency, country_code, timezone, is_active)
@@ -18,11 +21,13 @@ ON CONFLICT (id) DO NOTHING;
 DO $$
 DECLARE
     v_contract_id BIGINT;
-    v_location_id BIGINT;
+    v_origin_id BIGINT;
+    v_dest_id BIGINT;
 BEGIN
     -- Get existing contract for company 1
     SELECT id INTO v_contract_id FROM contracts WHERE company_id = 1 LIMIT 1;
-    SELECT id INTO v_location_id FROM locations LIMIT 1;
+    SELECT id INTO v_origin_id FROM locations ORDER BY id LIMIT 1;
+    SELECT id INTO v_dest_id FROM locations ORDER BY id LIMIT 1 OFFSET 1;
 
     -- Create minimal contract for company 999 if needed
     IF NOT EXISTS (SELECT 1 FROM contracts WHERE company_id = 999) THEN
@@ -37,7 +42,7 @@ BEGIN
             (SELECT id FROM parties LIMIT 1),
             (SELECT id FROM parties LIMIT 1),
             (SELECT id FROM parties LIMIT 1 OFFSET 1),
-            v_location_id, v_location_id,
+            v_origin_id, v_dest_id,
             'road', 'EXW', CURRENT_DATE, 'draft'
         FROM contract_types ct LIMIT 1;
     END IF;
@@ -64,10 +69,13 @@ BEGIN
     FROM contracts c WHERE c.company_id = 999 LIMIT 1;
 END $$;
 
--- Verify setup
+-- Verify setup (still as superuser)
 SELECT 'SETUP CHECK' AS test,
        (SELECT COUNT(*) FROM shipments WHERE company_id = 1) AS company_1_shipments,
        (SELECT COUNT(*) FROM shipments WHERE company_id = 999) AS company_999_shipments;
+
+-- Switch to authenticated role for actual RLS testing
+SET ROLE authenticated;
 
 -- =============================================================================
 -- TEST 1: Read isolation (exact counts)

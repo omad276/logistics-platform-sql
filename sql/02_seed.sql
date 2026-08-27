@@ -355,7 +355,7 @@ INSERT INTO tasks (id, company_id, shipment_id, stage_id, task_template_id, task
     (9, 1, 1, 4, 9, 'TSK-009', 'MONITOR_TRANSIT', 'Monitor ocean transit', 1, 'normal', 'completed', now() - INTERVAL '9 days', now() - INTERVAL '2 days'),
     -- IMPORT_CUSTOMS (in progress - THIS IS THE HOLD)
     (10, 1, 1, 5, 10, 'TSK-010', 'FILE_IMPORT_DEC', 'File import declaration', 2, 'high', 'completed', now() - INTERVAL '1 day', now() - INTERVAL '1 day'),
-    (11, 1, 1, 5, 11, 'TSK-011', 'SETTLE_DUTY', 'Settle duty and VAT', 5, 'high', 'waiting', now() - INTERVAL '20 hours', NULL),
+    (11, 1, 1, 5, 11, 'TSK-011', 'SETTLE_DUTY', 'Settle duty and VAT', 5, 'high', 'created', now() - INTERVAL '20 hours', NULL),
     (12, 1, 1, 5, 12, 'TSK-012', 'OBTAIN_IMPORT_REL', 'Obtain import release', 2, 'urgent', 'created', now(), NULL),
     -- WAREHOUSE (pending)
     (13, 1, 1, 6, 13, 'TSK-013', 'RECEIVE_INSPECT', 'Receive and inspect cargo', 3, 'high', 'created', now() + INTERVAL '1 day', NULL),
@@ -370,8 +370,8 @@ INSERT INTO tasks (id, company_id, shipment_id, stage_id, task_template_id, task
 
 SELECT setval('tasks_id_seq', 19);
 
--- Set hold reason on waiting task
-UPDATE tasks SET hold_reason = 'Awaiting customs release - declaration held pending phytosanitary verification' WHERE id = 11;
+-- Set hold reason on waiting task (must update status and hold_reason together due to check constraint)
+UPDATE tasks SET status = 'waiting', hold_reason = 'Awaiting customs release - declaration held pending phytosanitary verification' WHERE id = 11;
 
 -- Task dependencies (mirrors template dependencies)
 INSERT INTO task_dependencies (task_id, depends_on_task_id) VALUES
@@ -472,12 +472,12 @@ SELECT setval('drivers_id_seq', 1);
 -- =============================================================================
 
 -- Origin transport order (completed)
-INSERT INTO transport_orders (id, company_id, shipment_id, order_no, mode, origin_location_id, destination_location_id, status, actual_departure, actual_arrival)
-VALUES (1, 1, 1, 'TO-2024-00291', 'road', 1, 2, 'completed', now() - INTERVAL '12 days', now() - INTERVAL '11 days');
+INSERT INTO transport_orders (id, company_id, shipment_id, leg_no, order_no, mode, vehicle_id, driver_id, origin_location_id, destination_location_id, status, actual_departure, actual_arrival)
+VALUES (1, 1, 1, 1, 'TO-2024-00291', 'road', 1, 1, 1, 2, 'completed', now() - INTERVAL '12 days', now() - INTERVAL '11 days');
 
 -- Ocean transport order (completed)
-INSERT INTO transport_orders (id, company_id, shipment_id, order_no, mode, carrier_party_id, vessel_or_flight_no, origin_location_id, destination_location_id, status, actual_departure, actual_arrival)
-VALUES (2, 1, 1, 'TO-2024-00292', 'sea', 3, 'MSC RAVENNA / AE425E', 2, 3, 'completed', now() - INTERVAL '9 days', now() - INTERVAL '2 days');
+INSERT INTO transport_orders (id, company_id, shipment_id, leg_no, order_no, mode, carrier_party_id, vessel_or_flight_no, origin_location_id, destination_location_id, status, actual_departure, actual_arrival)
+VALUES (2, 1, 1, 2, 'TO-2024-00292', 'sea', 3, 'MSC RAVENNA / AE425E', 2, 3, 'completed', now() - INTERVAL '9 days', now() - INTERVAL '2 days');
 
 SELECT setval('transport_orders_id_seq', 2);
 
