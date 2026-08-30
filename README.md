@@ -8,7 +8,7 @@
 ![RLS Tests](https://img.shields.io/badge/RLS%20tests-9%2F9%20passed-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
-**Verified against PostgreSQL 17 and Supabase.** The full migration chain runs from empty, RLS tenant isolation tested under non-superuser roles.
+**Verified against PostgreSQL 16 (local) and PostgreSQL 17 (Supabase).** The full migration chain runs from empty with no environment-specific changes. RLS tenant isolation tested under non-superuser roles — 9/9 tests passing in both environments.
 
 Most logistics databases store shipments. This one **dispatches** them.
 
