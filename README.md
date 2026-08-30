@@ -3,9 +3,12 @@
 **A PostgreSQL database design for door-to-door freight execution.**
 
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14%2B-336791)
-![Tables](https://img.shields.io/badge/tables-53-blue)
+![Tables](https://img.shields.io/badge/tables-57-blue)
 ![Constraints](https://img.shields.io/badge/named%20constraints-44-green)
+![RLS Tests](https://img.shields.io/badge/RLS%20tests-9%2F9%20passed-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
+
+**Verified against PostgreSQL 17 and Supabase.** The full migration chain runs from empty, RLS tenant isolation tested under non-superuser roles.
 
 Most logistics databases store shipments. This one **dispatches** them.
 
