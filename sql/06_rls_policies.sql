@@ -211,6 +211,57 @@ CREATE POLICY tenant_isolation ON audit_log
     USING (company_id = current_company_id())
     WITH CHECK (company_id = current_company_id());
 
+-- Compliance tables (09_compliance_layer.sql)
+-- These are idempotent: IF NOT EXISTS handles re-runs before 09 is loaded
+
+DO $rls$
+BEGIN
+    -- party_registrations
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'party_registrations') THEN
+        ALTER TABLE party_registrations ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE party_registrations FORCE ROW LEVEL SECURITY;
+        IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'party_registrations' AND policyname = 'tenant_isolation') THEN
+            CREATE POLICY tenant_isolation ON party_registrations
+                USING (company_id = current_company_id())
+                WITH CHECK (company_id = current_company_id());
+        END IF;
+    END IF;
+
+    -- refund_claims
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'refund_claims') THEN
+        ALTER TABLE refund_claims ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE refund_claims FORCE ROW LEVEL SECURITY;
+        IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'refund_claims' AND policyname = 'tenant_isolation') THEN
+            CREATE POLICY tenant_isolation ON refund_claims
+                USING (company_id = current_company_id())
+                WITH CHECK (company_id = current_company_id());
+        END IF;
+    END IF;
+
+    -- party_screenings
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'party_screenings') THEN
+        ALTER TABLE party_screenings ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE party_screenings FORCE ROW LEVEL SECURITY;
+        IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'party_screenings' AND policyname = 'tenant_isolation') THEN
+            CREATE POLICY tenant_isolation ON party_screenings
+                USING (company_id = current_company_id())
+                WITH CHECK (company_id = current_company_id());
+        END IF;
+    END IF;
+
+    -- party_ownership
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'party_ownership') THEN
+        ALTER TABLE party_ownership ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE party_ownership FORCE ROW LEVEL SECURITY;
+        IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'party_ownership' AND policyname = 'tenant_isolation') THEN
+            CREATE POLICY tenant_isolation ON party_ownership
+                USING (company_id = current_company_id())
+                WITH CHECK (company_id = current_company_id());
+        END IF;
+    END IF;
+END;
+$rls$;
+
 -- =============================================================================
 -- CHILD TABLES (via parent FK join)
 -- Policy: EXISTS (SELECT 1 FROM parent WHERE parent.id = child.parent_id AND parent.company_id = current_company_id())

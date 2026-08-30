@@ -441,3 +441,42 @@ $fn$;
 COMMENT ON FUNCTION fn_aggregate_ownership IS
 'Calculate aggregate ownership percentage. Simplified: direct only.
 Production version needs recursive CTE to sum through ownership chains.';
+
+-- =============================================================================
+-- PART 7: ROW-LEVEL SECURITY
+-- =============================================================================
+-- All compliance tables have company_id and use direct tenant isolation.
+
+ALTER TABLE party_registrations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE party_registrations FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON party_registrations
+    USING (company_id = current_company_id())
+    WITH CHECK (company_id = current_company_id());
+
+ALTER TABLE refund_claims ENABLE ROW LEVEL SECURITY;
+ALTER TABLE refund_claims FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON refund_claims
+    USING (company_id = current_company_id())
+    WITH CHECK (company_id = current_company_id());
+
+ALTER TABLE party_screenings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE party_screenings FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON party_screenings
+    USING (company_id = current_company_id())
+    WITH CHECK (company_id = current_company_id());
+
+ALTER TABLE party_ownership ENABLE ROW LEVEL SECURITY;
+ALTER TABLE party_ownership FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON party_ownership
+    USING (company_id = current_company_id())
+    WITH CHECK (company_id = current_company_id());
+
+-- Grant access to authenticated role (matches 06_rls_policies.sql pattern)
+GRANT SELECT, INSERT, UPDATE, DELETE ON party_registrations TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON refund_claims TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON party_screenings TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON party_ownership TO authenticated;
+GRANT USAGE, SELECT ON SEQUENCE party_registrations_id_seq TO authenticated;
+GRANT USAGE, SELECT ON SEQUENCE refund_claims_id_seq TO authenticated;
+GRANT USAGE, SELECT ON SEQUENCE party_screenings_id_seq TO authenticated;
+GRANT USAGE, SELECT ON SEQUENCE party_ownership_id_seq TO authenticated;
