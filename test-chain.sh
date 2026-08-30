@@ -5,7 +5,7 @@
 # Usage: ./test-chain.sh [database_name]
 # =============================================================================
 #
-# Order: 01 → 02 → 03 → 04 → 06 → 07 → 08 → 05
+# Order: 01 → 02 → 03 → 04 → 06 → 07 → 08 → 09 → 05
 #   - 05 (RLS tests) runs LAST because it verifies row counts after full data load
 #   - 05 runs as 'authenticated' role so RLS is actually enforced
 #
@@ -64,6 +64,10 @@ psql $PSQL_OPTS -d "$DB_NAME" -f sql/07_margin_analysis.sql
 echo ""
 echo "=== Running 08_realistic_financials.sql ==="
 psql $PSQL_OPTS -d "$DB_NAME" -f sql/08_realistic_financials.sql
+
+echo ""
+echo "=== Running 09_compliance_layer.sql ==="
+psql $PSQL_OPTS -d "$DB_NAME" -f sql/09_compliance_layer.sql
 
 echo ""
 echo "=== Granting permissions to 'authenticated' role ==="
