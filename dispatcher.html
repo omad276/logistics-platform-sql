@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Dispatcher</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #0f0f0f;
+            --surface: #1a1a1a;
+            --border: #2a2a2a;
+            --text: #e0e0e0;
+            --text-muted: #888;
+            --accent: #3b82f6;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --success: #22c55e;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+
+        /* Auth screen */
+        #auth {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 1rem;
+        }
+
+        #auth h1 {
+            font-size: 1.5rem;
+            margin-bottom: 2rem;
+            font-weight: 500;
+        }
+
+        #auth form {
+            width: 100%;
+            max-width: 320px;
+        }
+
+        #auth input {
+            width: 100%;
+            padding: 0.875rem 1rem;
+            margin-bottom: 0.75rem;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 1rem;
+        }
+
+        #auth input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        #auth button {
+            width: 100%;
+            padding: 0.875rem;
+            background: var(--accent);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            margin-top: 0.5rem;
+        }
+
+        #auth button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        #auth-error {
+            color: var(--danger);
+            font-size: 0.875rem;
+            margin-top: 1rem;
+            text-align: center;
+        }
+
+        /* App container */
+        #app {
+            display: none;
+        }
+
+        /* Header */
+        header {
+            position: sticky;
+            top: 0;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 100;
+        }
+
+        header h1 {
+            font-size: 1.125rem;
+            font-weight: 500;
+        }
+
+        #sign-out {
+            padding: 0.5rem 1rem;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            cursor: pointer;
+        }
+
+        /* Task board */
+        #task-board {
+            padding: 1rem;
+        }
+
+        .task-count {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            margin-bottom: 1rem;
+        }
+
+        .task-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            cursor: pointer;
+            transition: border-color 0.15s;
+        }
+
+        .task-card:hover {
+            border-color: var(--accent);
+        }
+
+        .task-card.overdue {
+            border-left: 3px solid var(--danger);
+        }
+
+        .task-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 0.5rem;
+        }
+
+        .task-name {
+            font-weight: 500;
+            font-size: 1rem;
+        }
+
+        .task-priority {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+
+        .task-priority.urgent { background: var(--danger); color: white; }
+        .task-priority.high { background: var(--warning); color: black; }
+        .task-priority.normal { background: var(--border); color: var(--text-muted); }
+        .task-priority.low { background: var(--border); color: var(--text-muted); }
+
+        .task-meta {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        .task-meta span {
+            display: inline-block;
+            margin-right: 1rem;
+        }
+
+        .task-tracking {
+            font-family: monospace;
+            color: var(--accent);
+        }
+
+        .overdue-label {
+            color: var(--danger);
+            font-weight: 500;
+        }
+
+        /* Task detail modal */
+        #task-detail {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: var(--bg);
+            z-index: 200;
+            overflow-y: auto;
+        }
+
+        .detail-header {
+            position: sticky;
+            top: 0;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        #close-detail {
+            background: transparent;
+            border: none;
+            color: var(--text);
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0.25rem;
+        }
+
+        .detail-content {
+            padding: 1rem;
+        }
+
+        .detail-section {
+            margin-bottom: 1.5rem;
+        }
+
+        .detail-section h3 {
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .detail-section p {
+            font-size: 1rem;
+        }
+
+        .detail-tracking {
+            font-family: monospace;
+            font-size: 1.25rem;
+            color: var(--accent);
+        }
+
+        /* Action buttons */
+        .actions {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            padding: 1rem;
+            position: sticky;
+            bottom: 0;
+            background: var(--bg);
+            border-top: 1px solid var(--border);
+        }
+
+        .actions button {
+            width: 100%;
+            padding: 1rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .actions button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        #btn-start {
+            background: var(--accent);
+            color: white;
+        }
+
+        #btn-complete {
+            background: var(--success);
+            color: white;
+        }
+
+        #btn-hold {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+
+        /* Hold modal */
+        #hold-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 300;
+            justify-content: center;
+            align-items: center;
+            padding: 1rem;
+        }
+
+        .hold-dialog {
+            background: var(--surface);
+            border-radius: 12px;
+            width: 100%;
+            max-width: 400px;
+            padding: 1.5rem;
+        }
+
+        .hold-dialog h2 {
+            font-size: 1.125rem;
+            margin-bottom: 1rem;
+        }
+
+        .hold-dialog textarea {
+            width: 100%;
+            min-height: 100px;
+            padding: 0.875rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 1rem;
+            font-family: inherit;
+            resize: vertical;
+            margin-bottom: 1rem;
+        }
+
+        .hold-dialog textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .hold-buttons {
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        .hold-buttons button {
+            flex: 1;
+            padding: 0.875rem;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+
+        #cancel-hold {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+
+        #confirm-hold {
+            background: var(--warning);
+            border: none;
+            color: black;
+            font-weight: 500;
+        }
+
+        /* Loading state */
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-muted);
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: var(--text-muted);
+        }
+
+        .empty-state h2 {
+            font-size: 1.25rem;
+            color: var(--text);
+            margin-bottom: 0.5rem;
+        }
+
+        /* Toast notifications */
+        #toast {
+            position: fixed;
+            bottom: 1rem;
+            left: 1rem;
+            right: 1rem;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            display: none;
+            z-index: 400;
+        }
+
+        #toast.success { border-color: var(--success); }
+        #toast.error { border-color: var(--danger); }
+    </style>
+</head>
+<body>
+    <!-- Auth Screen -->
+    <div id="auth">
+        <h1>Dispatcher</h1>
+        <form id="auth-form">
+            <input type="email" id="email" placeholder="Email" required autocomplete="email">
+            <input type="password" id="password" placeholder="Password" required autocomplete="current-password">
+            <button type="submit" id="auth-submit">Sign In</button>
+        </form>
+        <p id="auth-error"></p>
+    </div>
+
+    <!-- Main App -->
+    <div id="app">
+        <header>
+            <h1>Tasks</h1>
+            <button id="sign-out">Sign Out</button>
+        </header>
+
+        <div id="task-board">
+            <div class="loading">Loading tasks...</div>
+        </div>
+    </div>
+
+    <!-- Task Detail Modal -->
+    <div id="task-detail">
+        <div class="detail-header">
+            <button id="close-detail">&larr;</button>
+            <h2 id="detail-name"></h2>
+        </div>
+        <div class="detail-content">
+            <div class="detail-section">
+                <h3>Shipment</h3>
+                <p id="detail-tracking" class="detail-tracking"></p>
+            </div>
+            <div class="detail-section">
+                <h3>Stage</h3>
+                <p id="detail-stage"></p>
+            </div>
+            <div class="detail-section">
+                <h3>Status</h3>
+                <p id="detail-status"></p>
+            </div>
+            <div class="detail-section">
+                <h3>Scheduled</h3>
+                <p id="detail-scheduled"></p>
+            </div>
+            <div class="detail-section" id="detail-hold-section" style="display:none">
+                <h3>On Hold</h3>
+                <p id="detail-hold-reason"></p>
+            </div>
+        </div>
+        <div class="actions">
+            <button id="btn-start">Start Task</button>
+            <button id="btn-complete">Complete Task</button>
+            <button id="btn-hold">Put On Hold</button>
+        </div>
+    </div>
+
+    <!-- Hold Reason Modal -->
+    <div id="hold-modal">
+        <div class="hold-dialog">
+            <h2>Hold Reason</h2>
+            <textarea id="hold-reason" placeholder="Why is this task on hold?"></textarea>
+            <div class="hold-buttons">
+                <button id="cancel-hold">Cancel</button>
+                <button id="confirm-hold">Put On Hold</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast"></div>
+
+    <!-- Supabase JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <script>
+        // =================================================================
+        // CONFIG - Replace with your Supabase project details
+        // =================================================================
+        const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+        const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+
+        // =================================================================
+        // INIT
+        // =================================================================
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let currentTask = null;
+
+        // =================================================================
+        // AUTH
+        // =================================================================
+        const authScreen = document.getElementById('auth');
+        const appScreen = document.getElementById('app');
+        const authForm = document.getElementById('auth-form');
+        const authError = document.getElementById('auth-error');
+        const authSubmit = document.getElementById('auth-submit');
+
+        authForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            authError.textContent = '';
+            authSubmit.disabled = true;
+            authSubmit.textContent = 'Signing in...';
+
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+            if (error) {
+                authError.textContent = error.message;
+                authSubmit.disabled = false;
+                authSubmit.textContent = 'Sign In';
+            }
+        });
+
+        document.getElementById('sign-out').addEventListener('click', async () => {
+            await supabase.auth.signOut();
+        });
+
+        // Listen for auth state changes
+        supabase.auth.onAuthStateChange((event, session) => {
+            if (session) {
+                authScreen.style.display = 'none';
+                appScreen.style.display = 'block';
+                loadTasks();
+            } else {
+                authScreen.style.display = 'flex';
+                appScreen.style.display = 'none';
+                authSubmit.disabled = false;
+                authSubmit.textContent = 'Sign In';
+            }
+        });
+
+        // =================================================================
+        // TASK BOARD
+        // =================================================================
+        const taskBoard = document.getElementById('task-board');
+
+        async function loadTasks() {
+            taskBoard.innerHTML = '<div class="loading">Loading tasks...</div>';
+
+            // Query v_ready_tasks - ordered by priority then scheduled start
+            const { data: tasks, error } = await supabase
+                .from('v_ready_tasks')
+                .select('*')
+                .order('priority', { ascending: false })  // urgent first
+                .order('scheduled_start_at', { ascending: true });
+
+            if (error) {
+                taskBoard.innerHTML = `<div class="loading">Error: ${error.message}</div>`;
+                console.error('Load tasks error:', error);
+                return;
+            }
+
+            if (!tasks || tasks.length === 0) {
+                taskBoard.innerHTML = `
+                    <div class="empty-state">
+                        <h2>All clear</h2>
+                        <p>No tasks waiting. Check back later.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const priorityOrder = { urgent: 0, high: 1, normal: 2, low: 3 };
+            tasks.sort((a, b) => {
+                const pDiff = (priorityOrder[a.priority] || 2) - (priorityOrder[b.priority] || 2);
+                if (pDiff !== 0) return pDiff;
+                return new Date(a.scheduled_start_at || '9999') - new Date(b.scheduled_start_at || '9999');
+            });
+
+            taskBoard.innerHTML = `
+                <p class="task-count">${tasks.length} task${tasks.length === 1 ? '' : 's'} ready</p>
+                ${tasks.map(task => `
+                    <div class="task-card ${task.is_overdue ? 'overdue' : ''}" data-id="${task.id}">
+                        <div class="task-header">
+                            <span class="task-name">${escapeHtml(task.task_name)}</span>
+                            <span class="task-priority ${task.priority}">${task.priority}</span>
+                        </div>
+                        <div class="task-meta">
+                            <span class="task-tracking">${escapeHtml(task.shipment_no)}</span>
+                            <span>${escapeHtml(task.stage_name)}</span>
+                            ${task.is_overdue ? '<span class="overdue-label">OVERDUE</span>' : ''}
+                        </div>
+                    </div>
+                `).join('')}
+            `;
+
+            // Add click handlers
+            taskBoard.querySelectorAll('.task-card').forEach(card => {
+                card.addEventListener('click', () => openTaskDetail(card.dataset.id));
+            });
+        }
+
+        // =================================================================
+        // TASK DETAIL
+        // =================================================================
+        const detailModal = document.getElementById('task-detail');
+
+        async function openTaskDetail(taskId) {
+            // Fetch full task details
+            const { data: task, error } = await supabase
+                .from('tasks')
+                .select(`
+                    *,
+                    shipments(shipment_no, tracking_no),
+                    shipment_stages(name)
+                `)
+                .eq('id', taskId)
+                .single();
+
+            if (error) {
+                showToast('Error loading task', 'error');
+                console.error('Task detail error:', error);
+                return;
+            }
+
+            currentTask = task;
+
+            // Update UI
+            document.getElementById('detail-name').textContent = task.name;
+            document.getElementById('detail-tracking').textContent =
+                task.shipments?.tracking_no || task.shipments?.shipment_no || 'N/A';
+            document.getElementById('detail-stage').textContent =
+                task.shipment_stages?.name || 'N/A';
+            document.getElementById('detail-status').textContent = task.status;
+            document.getElementById('detail-scheduled').textContent =
+                task.scheduled_start_at
+                    ? new Date(task.scheduled_start_at).toLocaleString()
+                    : 'Not scheduled';
+
+            // Hold reason
+            const holdSection = document.getElementById('detail-hold-section');
+            if (task.status === 'waiting' && task.hold_reason) {
+                holdSection.style.display = 'block';
+                document.getElementById('detail-hold-reason').textContent = task.hold_reason;
+            } else {
+                holdSection.style.display = 'none';
+            }
+
+            // Update button states
+            updateActionButtons(task.status);
+
+            detailModal.style.display = 'block';
+        }
+
+        function updateActionButtons(status) {
+            const btnStart = document.getElementById('btn-start');
+            const btnComplete = document.getElementById('btn-complete');
+            const btnHold = document.getElementById('btn-hold');
+
+            // Reset
+            btnStart.style.display = 'block';
+            btnComplete.style.display = 'block';
+            btnHold.style.display = 'block';
+            btnStart.disabled = false;
+            btnComplete.disabled = false;
+            btnHold.disabled = false;
+
+            // Adjust based on status
+            switch (status) {
+                case 'created':
+                case 'assigned':
+                case 'scheduled':
+                    btnComplete.disabled = true;
+                    break;
+                case 'in_progress':
+                    btnStart.style.display = 'none';
+                    break;
+                case 'waiting':
+                    btnStart.textContent = 'Resume Task';
+                    btnComplete.disabled = true;
+                    break;
+                case 'completed':
+                case 'closed':
+                    btnStart.style.display = 'none';
+                    btnComplete.style.display = 'none';
+                    btnHold.style.display = 'none';
+                    break;
+            }
+        }
+
+        document.getElementById('close-detail').addEventListener('click', () => {
+            detailModal.style.display = 'none';
+            currentTask = null;
+        });
+
+        // =================================================================
+        // TASK ACTIONS
+        // =================================================================
+        document.getElementById('btn-start').addEventListener('click', async () => {
+            if (!currentTask) return;
+
+            const { error } = await supabase
+                .from('tasks')
+                .update({
+                    status: 'in_progress',
+                    started_at: new Date().toISOString(),
+                    hold_reason: null
+                })
+                .eq('id', currentTask.id);
+
+            if (error) {
+                showToast('Error: ' + error.message, 'error');
+                return;
+            }
+
+            showToast('Task started', 'success');
+            detailModal.style.display = 'none';
+            loadTasks();
+        });
+
+        document.getElementById('btn-complete').addEventListener('click', async () => {
+            if (!currentTask) return;
+
+            const { error } = await supabase
+                .from('tasks')
+                .update({
+                    status: 'completed',
+                    completed_at: new Date().toISOString()
+                })
+                .eq('id', currentTask.id);
+
+            if (error) {
+                showToast('Error: ' + error.message, 'error');
+                return;
+            }
+
+            showToast('Task completed', 'success');
+            detailModal.style.display = 'none';
+
+            // Reload to show newly unblocked tasks
+            loadTasks();
+        });
+
+        // =================================================================
+        // HOLD FLOW
+        // =================================================================
+        const holdModal = document.getElementById('hold-modal');
+        const holdReason = document.getElementById('hold-reason');
+
+        document.getElementById('btn-hold').addEventListener('click', () => {
+            holdReason.value = '';
+            holdModal.style.display = 'flex';
+            holdReason.focus();
+        });
+
+        document.getElementById('cancel-hold').addEventListener('click', () => {
+            holdModal.style.display = 'none';
+        });
+
+        document.getElementById('confirm-hold').addEventListener('click', async () => {
+            if (!currentTask) return;
+
+            const reason = holdReason.value.trim();
+            if (!reason) {
+                showToast('Hold reason is required', 'error');
+                return;
+            }
+
+            const { error } = await supabase
+                .from('tasks')
+                .update({
+                    status: 'waiting',
+                    hold_reason: reason
+                })
+                .eq('id', currentTask.id);
+
+            if (error) {
+                showToast('Error: ' + error.message, 'error');
+                return;
+            }
+
+            showToast('Task on hold', 'success');
+            holdModal.style.display = 'none';
+            detailModal.style.display = 'none';
+            loadTasks();
+        });
+
+        // Close hold modal on outside click
+        holdModal.addEventListener('click', (e) => {
+            if (e.target === holdModal) {
+                holdModal.style.display = 'none';
+            }
+        });
+
+        // =================================================================
+        // UTILITIES
+        // =================================================================
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
+
+        const toast = document.getElementById('toast');
+        let toastTimeout;
+
+        function showToast(message, type = 'success') {
+            toast.textContent = message;
+            toast.className = type;
+            toast.style.display = 'block';
+
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => {
+                toast.style.display = 'none';
+            }, 3000);
+        }
+
+        // =================================================================
+        // INIT CHECK
+        // =================================================================
+        (async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+                authScreen.style.display = 'none';
+                appScreen.style.display = 'block';
+                loadTasks();
+            }
+        })();
+    </script>
+</body>
+</html>
