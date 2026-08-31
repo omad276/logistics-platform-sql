@@ -697,7 +697,11 @@ BEGIN
     IF clock_timestamp() - v_start_time > INTERVAL '5 seconds' THEN
         RAISE EXCEPTION 'TEST 7e FAILED: Query took too long, possible infinite loop';
     END IF;
-    RAISE NOTICE 'TEST 7e PASSED: Circular ownership A→B→C→A handled without hanging (% owners found)', v_result_count;
+    -- Should find exactly 2 owners (B and C), not 3 (A should not own itself)
+    IF v_result_count <> 2 THEN
+        RAISE EXCEPTION 'TEST 7e FAILED: Expected 2 owners (B, C), got % - self-ownership may be leaking', v_result_count;
+    END IF;
+    RAISE NOTICE 'TEST 7e PASSED: Circular ownership A→B→C→A handled correctly (2 owners, no self-ownership)';
 END $$;
 
 -- 7f: Temporal: ownership that ended before p_as_of is excluded

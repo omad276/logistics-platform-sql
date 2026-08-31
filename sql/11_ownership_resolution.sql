@@ -62,12 +62,12 @@ BEGIN
             po.owner_party_id,
             c.owned_party_id,
             (c.effective_pct * po.ownership_percent / 100)::NUMERIC,
-            c.path || po.owned_party_id,
+            c.path || po.owner_party_id,
             c.depth + 1
         FROM chain c
         JOIN party_ownership po ON po.owned_party_id = c.owner_party_id
         WHERE po.owner_party_id IS NOT NULL
-          AND NOT po.owned_party_id = ANY(c.path)  -- cycle guard
+          AND NOT po.owner_party_id = ANY(c.path)  -- cycle guard: don't revisit an owner
           AND c.depth < 10                          -- depth guard
           AND p_as_of >= po.effective_from
           AND p_as_of <= COALESCE(po.effective_to, 'infinity'::DATE)
@@ -203,14 +203,15 @@ BEGIN
             ELSE NULL
         END;
 
-    -- Canada: >= 50% (verify threshold before production)
+    -- Canada: threshold UNVERIFIED - using 50% as placeholder
+    -- TODO: Verify against SEMA (Special Economic Measures Act) guidance before production
     RETURN QUERY
     SELECT
         'CA'::TEXT,
-        50.0::NUMERIC,
+        50.0::NUMERIC,  -- UNVERIFIED: confirm against Canadian SEMA guidance
         v_sanctioned_ownership,
         v_sanctioned_ownership >= 50.0,
-        CASE WHEN v_sanctioned_ownership >= 50.0 THEN 'ownership' ELSE NULL END;
+        CASE WHEN v_sanctioned_ownership >= 50.0 THEN 'ownership (UNVERIFIED)' ELSE NULL END;
 
     RETURN;
 END;
@@ -220,7 +221,7 @@ COMMENT ON FUNCTION fn_sanctions_exposure(BIGINT, DATE) IS
 'Determines sanctions blocking status across jurisdictions.
 US/EU: blocked at >= 50% sanctioned ownership.
 UK: blocked at > 50% OR if sanctioned party has control (is_controlling).
-Canada: >= 50% (verify threshold before production use).
+Canada: UNVERIFIED - using 50% placeholder. Confirm against SEMA guidance before production.
 Returns one row per jurisdiction with blocking determination and basis.';
 
 -- =============================================================================
