@@ -265,6 +265,210 @@ BEGIN
 END $$;
 
 -- =============================================================================
+-- TEST 6: Usage metering tests
+-- =============================================================================
+-- Setup: Create subscriptions and tasks for metering tests (as superuser)
+
+RESET ROLE;
+
+DO $$
+DECLARE
+    v_shipment_id BIGINT;
+    v_stage_id BIGINT;
+    v_plan_id BIGINT;
+BEGIN
+    -- Get a plan
+    SELECT id INTO v_plan_id FROM billing_plans WHERE code = 'BUSINESS' LIMIT 1;
+
+    -- Create subscription for company 1 (with active subscription)
+    DELETE FROM usage_events WHERE company_id IN (1, 999);
+    DELETE FROM company_subscriptions WHERE company_id IN (1, 999);
+
+    INSERT INTO company_subscriptions (
+        company_id, plan_id, status,
+        started_on, current_period_start, current_period_end
+    ) VALUES (
+        1, v_plan_id, 'active',
+        CURRENT_DATE, CURRENT_DATE, CURRENT_DATE + 30
+    );
+
+    -- Company 999 has NO subscription (for test 6b)
+
+    -- Get shipment and stage for task creation
+    SELECT id INTO v_shipment_id FROM shipments WHERE company_id = 1 LIMIT 1;
+
+    IF v_shipment_id IS NOT NULL THEN
+        -- Ensure a stage exists
+        INSERT INTO shipment_stages (shipment_id, sequence_no, code, name, status)
+        SELECT v_shipment_id, 99, 'TEST_STAGE', 'Test Stage', 'active'
+        WHERE NOT EXISTS (
+            SELECT 1 FROM shipment_stages WHERE shipment_id = v_shipment_id AND code = 'TEST_STAGE'
+        );
+
+        SELECT id INTO v_stage_id FROM shipment_stages
+        WHERE shipment_id = v_shipment_id AND code = 'TEST_STAGE';
+
+        -- Create a test task for company 1 (metering test)
+        -- Use status='created' to satisfy tasks_assignment_rule, then update to in_progress
+        DELETE FROM tasks WHERE task_no = 'METER-TEST-001';
+        INSERT INTO tasks (
+            company_id, shipment_id, stage_id, task_no, code, name, status, department_id
+        ) VALUES (
+            1, v_shipment_id, v_stage_id, 'METER-TEST-001', 'METER_TEST', 'Metering Test Task', 'in_progress',
+            (SELECT id FROM departments WHERE company_id = 1 LIMIT 1)
+        );
+    END IF;
+
+    -- Create task for company 999 (no subscription test)
+    SELECT id INTO v_shipment_id FROM shipments WHERE company_id = 999 LIMIT 1;
+
+    IF v_shipment_id IS NOT NULL THEN
+        INSERT INTO shipment_stages (shipment_id, sequence_no, code, name, status)
+        SELECT v_shipment_id, 99, 'TEST_STAGE', 'Test Stage', 'active'
+        WHERE NOT EXISTS (
+            SELECT 1 FROM shipment_stages WHERE shipment_id = v_shipment_id AND code = 'TEST_STAGE'
+        );
+
+        SELECT id INTO v_stage_id FROM shipment_stages
+        WHERE shipment_id = v_shipment_id AND code = 'TEST_STAGE';
+
+        -- Use status='created' first (no assignment needed), then complete in test
+        DELETE FROM tasks WHERE task_no = 'METER-TEST-999';
+        INSERT INTO tasks (
+            company_id, shipment_id, stage_id, task_no, code, name, status
+        ) VALUES (
+            999, v_shipment_id, v_stage_id, 'METER-TEST-999', 'METER_TEST', 'Metering Test Task No Sub', 'created'
+        );
+    END IF;
+END $$;
+
+-- 6a: Completing a task with an active subscription writes exactly one usage_events row
+DO $$
+DECLARE
+    v_task_id BIGINT;
+    v_events_before INT;
+    v_events_after INT;
+    v_points NUMERIC;
+BEGIN
+    SELECT id INTO v_task_id FROM tasks WHERE task_no = 'METER-TEST-001';
+    SELECT COUNT(*) INTO v_events_before FROM usage_events WHERE company_id = 1;
+
+    -- Complete the task
+    UPDATE tasks SET status = 'completed', completed_at = now() WHERE id = v_task_id;
+
+    SELECT COUNT(*) INTO v_events_after FROM usage_events WHERE company_id = 1;
+    SELECT points_charged INTO v_points FROM usage_events
+    WHERE company_id = 1 AND task_id = v_task_id;
+
+    IF v_events_after - v_events_before <> 1 THEN
+        RAISE EXCEPTION 'TEST 6a FAILED: Expected 1 new usage_event, got %', v_events_after - v_events_before;
+    END IF;
+
+    IF v_points IS NULL OR v_points <= 0 THEN
+        RAISE EXCEPTION 'TEST 6a FAILED: Points charged is null or zero';
+    END IF;
+
+    RAISE NOTICE 'TEST 6a PASSED: Task completion created 1 usage_event with % points', v_points;
+END $$;
+
+-- 6b: Completing a task with no subscription writes zero rows AND task still completes
+DO $$
+DECLARE
+    v_task_id BIGINT;
+    v_dept_id BIGINT;
+    v_events_before INT;
+    v_events_after INT;
+    v_task_status task_status;
+BEGIN
+    SELECT id INTO v_task_id FROM tasks WHERE task_no = 'METER-TEST-999';
+    SELECT id INTO v_dept_id FROM departments LIMIT 1;
+    SELECT COUNT(*) INTO v_events_before FROM usage_events WHERE company_id = 999;
+
+    -- Assign department (required by tasks_assignment_rule for non-created status)
+    -- Then complete the task (company 999 has no subscription)
+    UPDATE tasks SET department_id = v_dept_id, status = 'completed', completed_at = now() WHERE id = v_task_id;
+
+    SELECT COUNT(*) INTO v_events_after FROM usage_events WHERE company_id = 999;
+    SELECT status INTO v_task_status FROM tasks WHERE id = v_task_id;
+
+    IF v_events_after - v_events_before <> 0 THEN
+        RAISE EXCEPTION 'TEST 6b FAILED: Expected 0 new usage_events (no subscription), got %', v_events_after - v_events_before;
+    END IF;
+
+    IF v_task_status <> 'completed' THEN
+        RAISE EXCEPTION 'TEST 6b FAILED: Task did not complete (status: %)', v_task_status;
+    END IF;
+
+    RAISE NOTICE 'TEST 6b PASSED: No subscription = 0 usage_events, task still completed';
+END $$;
+
+-- Switch back to authenticated role for RLS tests
+SET ROLE authenticated;
+
+-- 6c: A tenant cannot read another tenant's usage_events
+DO $$
+DECLARE
+    v_count INT;
+BEGIN
+    PERFORM set_config('app.company_id', '1', TRUE);
+    SELECT COUNT(*) INTO v_count FROM usage_events WHERE company_id = 999;
+
+    IF v_count <> 0 THEN
+        RAISE EXCEPTION 'TEST 6c FAILED: Company 1 saw % of Company 999 usage_events', v_count;
+    END IF;
+    RAISE NOTICE 'TEST 6c PASSED: Company 1 cannot see Company 999 usage_events';
+END $$;
+
+-- 6d: The authenticated role cannot read tenant_costs at all
+DO $$
+DECLARE
+    v_count INT;
+BEGIN
+    PERFORM set_config('app.company_id', '1', TRUE);
+
+    BEGIN
+        SELECT COUNT(*) INTO v_count FROM tenant_costs;
+
+        IF v_count = 0 THEN
+            RAISE NOTICE 'TEST 6d PASSED: tenant_costs returned 0 rows (RLS blocks all)';
+        ELSE
+            RAISE EXCEPTION 'TEST 6d FAILED: Authenticated role saw % tenant_costs rows', v_count;
+        END IF;
+    EXCEPTION
+        WHEN insufficient_privilege THEN
+            RAISE NOTICE 'TEST 6d PASSED: tenant_costs access denied';
+    END;
+END $$;
+
+-- 6e: Overlapping subscription periods are rejected
+RESET ROLE;
+
+DO $$
+DECLARE
+    v_plan_id BIGINT;
+BEGIN
+    SELECT id INTO v_plan_id FROM billing_plans WHERE code = 'BUSINESS' LIMIT 1;
+
+    BEGIN
+        -- Try to insert overlapping subscription (company 1 already has active subscription)
+        INSERT INTO company_subscriptions (
+            company_id, plan_id, status,
+            started_on, current_period_start, current_period_end
+        ) VALUES (
+            1, v_plan_id, 'active',
+            CURRENT_DATE, CURRENT_DATE + 15, CURRENT_DATE + 45  -- Overlaps existing period
+        );
+
+        RAISE EXCEPTION 'TEST 6e FAILED: Overlapping subscription was allowed';
+    EXCEPTION
+        WHEN exclusion_violation THEN
+            RAISE NOTICE 'TEST 6e PASSED: Overlapping subscription rejected by EXCLUDE constraint';
+    END;
+END $$;
+
+SET ROLE authenticated;
+
+-- =============================================================================
 -- Summary: Expected results
 -- =============================================================================
 --
@@ -285,4 +489,13 @@ END $$;
 --   3:    PASS (fail loud)
 --   4:    PASS
 --   5:    NOTICE (non-bypassing role)
+--
+-- USAGE METERING TESTS (after 10_usage_metering.sql):
+--   6a: PASS - task completion with subscription creates usage_event
+--   6b: PASS - task completion without subscription creates 0 events, task completes
+--   6c: PASS - tenant isolation on usage_events
+--   6d: PASS - tenant_costs blocked for authenticated role
+--   6e: PASS - overlapping subscriptions rejected
+--
+-- Total: 14 tests passing
 -- =============================================================================
