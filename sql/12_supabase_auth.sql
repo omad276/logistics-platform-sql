@@ -61,10 +61,19 @@ STABLE
 AS $cc$
 DECLARE
     v TEXT;
+    claims json;
 BEGIN
     -- Supabase / PostgREST path: read from JWT claims
     BEGIN
-        v := nullif(current_setting('request.jwt.claims', true), '')::json ->> 'company_id';
+        claims := nullif(current_setting('request.jwt.claims', true), '')::json;
+        IF claims IS NOT NULL THEN
+            -- Try top-level first (our hook writes here)
+            v := claims ->> 'company_id';
+            -- Fall back to app_metadata (some Supabase versions nest here)
+            IF v IS NULL THEN
+                v := claims -> 'app_metadata' ->> 'company_id';
+            END IF;
+        END IF;
     EXCEPTION WHEN OTHERS THEN
         v := NULL;  -- JSON parse failed, try session variable
     END;
@@ -100,10 +109,19 @@ STABLE
 AS $cu$
 DECLARE
     v TEXT;
+    claims json;
 BEGIN
     -- Supabase / PostgREST path: read from JWT claims
     BEGIN
-        v := nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id';
+        claims := nullif(current_setting('request.jwt.claims', true), '')::json;
+        IF claims IS NOT NULL THEN
+            -- Try top-level first (our hook writes here)
+            v := claims ->> 'user_id';
+            -- Fall back to app_metadata (some Supabase versions nest here)
+            IF v IS NULL THEN
+                v := claims -> 'app_metadata' ->> 'user_id';
+            END IF;
+        END IF;
     EXCEPTION WHEN OTHERS THEN
         v := NULL;
     END;
@@ -164,22 +182,27 @@ SET search_path = public
 AS $hook$
 DECLARE
     claims jsonb;
-    user_profile user_profiles%ROWTYPE;
+    v_company_id BIGINT;
+    v_user_id BIGINT;
 BEGIN
-    -- Get the user's profile
-    SELECT * INTO user_profile
-    FROM user_profiles
-    WHERE id = (event ->> 'user_id')::uuid;
-
-    -- Build custom claims
     claims := event -> 'claims';
 
-    IF user_profile.id IS NOT NULL THEN
-        claims := jsonb_set(claims, '{company_id}', to_jsonb(user_profile.company_id));
-        claims := jsonb_set(claims, '{user_id}', to_jsonb(user_profile.user_id));
-    END IF;
+    -- Lookup must not error - missing profile returns original claims unchanged
+    -- If this throws, Supabase issues token without custom claims (silent failure)
+    BEGIN
+        SELECT company_id, user_id INTO v_company_id, v_user_id
+        FROM user_profiles
+        WHERE id = (event ->> 'user_id')::uuid;
 
-    -- Return the modified event
+        IF v_company_id IS NOT NULL THEN
+            claims := jsonb_set(claims, '{company_id}', to_jsonb(v_company_id));
+            claims := jsonb_set(claims, '{user_id}', to_jsonb(v_user_id));
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        -- Return original claims on any error
+        NULL;
+    END;
+
     RETURN jsonb_set(event, '{claims}', claims);
 END;
 $hook$;
@@ -189,10 +212,12 @@ COMMENT ON FUNCTION custom_access_token_hook(jsonb) IS
 Must be registered in Supabase dashboard under Authentication > Hooks.';
 
 -- Grant execute to supabase_auth_admin (the role Supabase uses for auth hooks)
--- Only grant if the role exists (Supabase environment)
+-- CRITICAL: Without these grants, the hook silently returns default claims
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'supabase_auth_admin') THEN
+        GRANT USAGE ON SCHEMA public TO supabase_auth_admin;
+        GRANT SELECT ON user_profiles TO supabase_auth_admin;
         GRANT EXECUTE ON FUNCTION custom_access_token_hook(jsonb) TO supabase_auth_admin;
     END IF;
 END $$;
